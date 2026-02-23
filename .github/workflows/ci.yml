@@ -1,72 +1,55 @@
-name: CI
+name: CI — Audit Tools
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 jobs:
-  lint-test:
-    name: Lint & Test
+  test:
+    name: "Python ${{ matrix.python-version }}"
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Detect project type
-        id: detect
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
         run: |
-          if [ -f "package.json" ]; then echo "type=node" >> $GITHUB_OUTPUT
-          elif [ -f "requirements.txt" ] || [ -f "pyproject.toml" ]; then echo "type=python" >> $GITHUB_OUTPUT
-          elif [ -f "go.mod" ]; then echo "type=go" >> $GITHUB_OUTPUT
-          elif [ -f "wrangler.toml" ]; then echo "type=worker" >> $GITHUB_OUTPUT
-          else echo "type=generic" >> $GITHUB_OUTPUT
-          fi
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
 
-      # Node.js
-      - uses: actions/setup-node@v4
-        if: steps.detect.outputs.type == 'node' || steps.detect.outputs.type == 'worker'
-        with: { node-version: '20', cache: 'npm' }
-      - run: npm ci
-        if: steps.detect.outputs.type == 'node' || steps.detect.outputs.type == 'worker'
-        continue-on-error: true
-      - run: npm run lint --if-present
-        if: steps.detect.outputs.type == 'node' || steps.detect.outputs.type == 'worker'
-        continue-on-error: true
-      - run: npm test --if-present
-        if: steps.detect.outputs.type == 'node' || steps.detect.outputs.type == 'worker'
-        continue-on-error: true
+      - name: Run voting system tests
+        run: pytest tests/test_voting.py -v --tb=short --cov=src/voting_system --cov-report=term-missing
 
-      # Python
-      - uses: actions/setup-python@v5
-        if: steps.detect.outputs.type == 'python'
-        with: { python-version: '3.12' }
-      - run: pip install -r requirements.txt --quiet
-        if: steps.detect.outputs.type == 'python'
-        continue-on-error: true
-      - run: python -m pytest --tb=short -q 2>/dev/null || echo "No tests found"
-        if: steps.detect.outputs.type == 'python'
-        continue-on-error: true
+      - name: Run permit tracker tests
+        run: pytest tests/test_permits.py -v --tb=short --cov=src/permit_tracker --cov-report=term-missing
 
-      # Go
-      - uses: actions/setup-go@v5
-        if: steps.detect.outputs.type == 'go'
-        with: { go-version: '1.22' }
-      - run: go build ./... && go test ./...
-        if: steps.detect.outputs.type == 'go'
-        continue-on-error: true
+      - name: Run public records tests
+        run: pytest tests/test_public_records.py -v --tb=short --cov=src/public_records --cov-report=term-missing
 
-      - name: ✅ CI complete
-        run: echo "CI passed for ${{ github.repository }}"
+      - name: Smoke-test CLIs
+        run: |
+          python src/voting_system.py --help
+          python src/permit_tracker.py --help
+          python src/public_records.py --help
 
-  typecheck:
-    name: Type Check
+  lint:
     runs-on: ubuntu-latest
-    if: contains(github.repository, 'blackroad')
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '20' }
-      - run: npm ci 2>/dev/null || true
-      - run: npx tsc --noEmit 2>/dev/null || echo "No TypeScript config"
-        continue-on-error: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Lint with flake8
+        run: |
+          pip install flake8
+          flake8 src/ --max-line-length=120 --ignore=E501,W503
