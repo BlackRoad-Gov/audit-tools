@@ -143,7 +143,7 @@ def test_list_ballots(tmp_db):
 def test_voting_window_not_open(tmp_db):
     b = create_ballot("Future Vote", "", ["Yes", "No"], _future(1), _future(3), db_path=tmp_db)
     register_voter("early", b.id, db_path=tmp_db)
-    with pytest.raises(ValueError, match="not started"):
+    with pytest.raises(ValueError, match="not opened yet"):
         cast_vote(b.id, "early", "Yes", db_path=tmp_db)
 
 
